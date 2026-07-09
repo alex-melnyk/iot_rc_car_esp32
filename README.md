@@ -144,11 +144,16 @@ Power the remote Nano from any USB power bank.
   spin left, spin right, forward, back, a **figure-8**, then a wiggle finale,
   then control returns to you.
 - **Failsafe:** if the car hears no packet for 400 ms, it stops.
+- **Boot jingle:** on power-up the car plays a short arpeggio *through the motor
+  coils* (they hum at the PWM frequency). Front/back wheels are driven opposite
+  during the tune so it buzzes in place.
 
 ### Tuning (`car_l293d/car_l293d.ino`)
 | Constant | Meaning |
 |----------|---------|
 | `MAX_DUTY` (180) | speed cap (0–255). Raise for more speed; watch motor heat on 11.1V |
+| `MIN_DUTY` (75) | floor: any motion lifts to ≥ this so all motors break friction together |
+| `TRIM_M1..4` (100) | per-motor speed trim (%). Bump a lagging wheel, e.g. `TRIM_M4 = 112` |
 | `DEADZONE` (300) | joystick center dead-band (raw ADC counts) |
 | `FAILSAFE_MS` (400) | stop if no packet for this long |
 

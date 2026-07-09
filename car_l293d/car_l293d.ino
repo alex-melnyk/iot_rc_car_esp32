@@ -49,6 +49,10 @@ const int PWM_M4 = D7;   // right  (shield hole 5 -- Adafruit M4 PWM)
 #define M4_B 6
 
 const int MAX_DUTY = 180;              // speed cap (0-255); ~70% on 11.1V
+const int MIN_DUTY = 75;               // floor: any motion lifts to >= this so
+                                       // all motors break static friction together
+// per-motor speed trim (%, 100 = unchanged) to equalize running speeds
+const int TRIM_M1 = 100, TRIM_M2 = 100, TRIM_M3 = 100, TRIM_M4 = 100;
 const int DEADZONE = 300;              // raw-ADC counts around center
 const unsigned long FAILSAFE_MS = 400;
 volatile unsigned long lastRecv = 0;
@@ -84,10 +88,14 @@ void setDir(int aBit, int bBit, int dir) {   // dir: +1 fwd, -1 rev, 0 stop
   else              { latch_state &= ~(1 << aBit); latch_state &= ~(1 << bBit); }
 }
 
-void driveMotor(int aBit, int bBit, int pwmPin, int speed) {
+void driveMotor(int aBit, int bBit, int pwmPin, int speed, int trim) {
   setDir(aBit, bBit, speed > 0 ? 1 : (speed < 0 ? -1 : 0));
   int duty = abs(speed);
-  if (duty > 255) duty = 255;
+  if (duty > 0) {
+    duty = map(duty, 1, MAX_DUTY, MIN_DUTY, MAX_DUTY);  // lift off the floor
+    duty = (int)((long)duty * trim / 100);              // per-motor trim
+    if (duty > 255) duty = 255;
+  }
   analogWrite(pwmPin, duty);
 }
 
@@ -99,10 +107,10 @@ void stopAll() {
 
 // drive both sides at once: +speed = forward (uses the corner mapping)
 void drive(int left, int right) {
-  driveMotor(M2_A, M2_B, PWM_M2, left);    // front-left
-  driveMotor(M3_A, M3_B, PWM_M3, left);    // back-left
-  driveMotor(M1_A, M1_B, PWM_M1, right);   // front-right
-  driveMotor(M4_A, M4_B, PWM_M4, right);   // back-right
+  driveMotor(M2_A, M2_B, PWM_M2, left,  TRIM_M2);   // front-left
+  driveMotor(M3_A, M3_B, PWM_M3, left,  TRIM_M3);   // back-left
+  driveMotor(M1_A, M1_B, PWM_M1, right, TRIM_M1);   // front-right
+  driveMotor(M4_A, M4_B, PWM_M4, right, TRIM_M4);   // back-right
   latch_tx();
 }
 
@@ -174,11 +182,35 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *incoming, int len) {
   }
 }
 
+// Play a little jingle *through the motor coils* (they hum at the PWM freq).
+// Front wheels fwd + back wheels rev => forces cancel, car buzzes in place.
+void startupTune() {
+  latch_state = 0;
+  latch_state |= (1 << M1_A);   // front-right forward
+  latch_state |= (1 << M2_A);   // front-left  forward
+  latch_state |= (1 << M3_B);   // back-left   reverse
+  latch_state |= (1 << M4_B);   // back-right  reverse
+  latch_tx();
+
+  const int notes[] = {523, 659, 784, 1047};   // C5 E5 G5 C6 rising arpeggio
+  const int durs[]  = {130, 130, 130, 240};
+  const int pins[]  = {PWM_M1, PWM_M2, PWM_M3, PWM_M4};
+  for (int n = 0; n < 4; n++) {
+    for (int p : pins) { analogWriteFrequency(p, notes[n]); analogWrite(p, 150); }
+    delay(durs[n]);
+    for (int p : pins) analogWrite(p, 0);
+    delay(45);
+  }
+  for (int p : pins) analogWriteFrequency(p, 1000);   // back to normal PWM freq
+  stopAll();
+}
+
 void setup() {
   Serial.begin(115200);
   int outs[] = {DIR_LATCH, DIR_CLK, DIR_SER, PWM_M1, PWM_M2, PWM_M3, PWM_M4};
   for (int p : outs) pinMode(p, OUTPUT);
   stopAll();
+  startupTune();                  // boot jingle through the motor coils
 
   WiFi.mode(WIFI_STA);
   Serial.print("Car MAC: "); Serial.println(WiFi.macAddress());
