@@ -193,13 +193,14 @@ void startupTune() {
   latch_tx();
 
   const int notes[] = {523, 659, 784, 1047};   // C5 E5 G5 C6 rising arpeggio
-  const int durs[]  = {130, 130, 130, 240};
+  const int durs[]  = {160, 160, 160, 300};
   const int pins[]  = {PWM_M1, PWM_M2, PWM_M3, PWM_M4};
+  const int toneDuty = 45;    // low: coil hums at the note freq but doesn't spin
   for (int n = 0; n < 4; n++) {
-    for (int p : pins) { analogWriteFrequency(p, notes[n]); analogWrite(p, 150); }
+    for (int p : pins) { analogWriteFrequency(p, notes[n]); analogWrite(p, toneDuty); }
     delay(durs[n]);
     for (int p : pins) analogWrite(p, 0);
-    delay(45);
+    delay(50);
   }
   for (int p : pins) analogWriteFrequency(p, 1000);   // back to normal PWM freq
   stopAll();
