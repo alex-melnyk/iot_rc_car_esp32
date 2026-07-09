@@ -148,7 +148,7 @@ Power the remote Nano from any USB power bank.
 ### Tuning (`car_l293d/car_l293d.ino`)
 | Constant | Meaning |
 |----------|---------|
-| `MAX_DUTY` (120) | speed cap (0–255). Raise for more speed; watch motor heat on 11.1V |
+| `MAX_DUTY` (180) | speed cap (0–255). Raise for more speed; watch motor heat on 11.1V |
 | `DEADZONE` (300) | joystick center dead-band (raw ADC counts) |
 | `FAILSAFE_MS` (400) | stop if no packet for this long |
 

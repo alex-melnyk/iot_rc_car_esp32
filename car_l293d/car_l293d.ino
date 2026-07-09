@@ -48,7 +48,7 @@ const int PWM_M4 = D7;   // right  (shield hole 5 -- Adafruit M4 PWM)
 #define M4_A 0
 #define M4_B 6
 
-const int MAX_DUTY = 120;              // cap for 3-6V motors on 11.1V
+const int MAX_DUTY = 180;              // speed cap (0-255); ~70% on 11.1V
 const int DEADZONE = 300;              // raw-ADC counts around center
 const unsigned long FAILSAFE_MS = 400;
 volatile unsigned long lastRecv = 0;
