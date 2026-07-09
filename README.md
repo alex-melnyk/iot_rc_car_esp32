@@ -144,9 +144,24 @@ Power the remote Nano from any USB power bank.
   spin left, spin right, forward, back, a **figure-8**, then a wiggle finale,
   then control returns to you.
 - **Failsafe:** if the car hears no packet for 400 ms, it stops.
-- **Boot jingle:** on power-up the car plays a short arpeggio *through the motor
-  coils* (they hum at the PWM frequency). Front/back wheels are driven opposite
-  during the tune so it buzzes in place.
+
+### Sounds (the motors are the speaker)
+The car plays tones **through the motor coils** — driven at a note's frequency
+and a low duty (`TONE_DUTY`), the coils hum the pitch without spinning. During a
+tone the front wheels are driven forward and the back wheels reverse, so the
+forces cancel and the car stays put. All sounds fire from `loop()` (never the
+radio callback) via `playMelody()`:
+
+| Event | Sound |
+|-------|-------|
+| Boot | Imperial March opening |
+| Remote first connects | two-note chirp |
+| Joystick button press | single beep |
+| Triple-click (demo) | fanfare, then the demo show |
+
+Change any tune by editing its note/duration arrays (`MARCH_N/D`, `CHIRP_N/D`,
+`BEEP_N/D`, `FANFARE_N/D`) near the top of `car_l293d.ino`. Notes are Hz,
+durations ms, `0` = rest.
 
 ### Tuning (`car_l293d/car_l293d.ino`)
 | Constant | Meaning |

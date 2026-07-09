@@ -61,6 +61,10 @@ uint8_t latch_state = 0;
 
 volatile bool demoRequested = false;
 volatile bool demoActive = false;
+volatile bool wantChirp = false;      // remote just connected
+volatile bool wantBeep  = false;      // button pressed
+volatile bool linked    = false;      // are we currently hearing the remote?
+volatile bool audioBusy = false;      // a melody is playing (owns the motors)
 
 typedef struct { int16_t x; int16_t y; uint8_t btn; } Packet;
 Packet data;
@@ -143,12 +147,14 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *incoming, int len) {
   if (len != sizeof(Packet)) return;
   memcpy(&data, incoming, sizeof(Packet));
   lastRecv = millis();
+  if (!linked) { linked = true; wantChirp = true; }   // remote just connected
 
   // triple-click the joystick button (within 1.2s) -> run the demo show
   static uint8_t lastBtn = 0;
   static int pressCount = 0;
   static unsigned long lastPress = 0;
   if (data.btn == 1 && lastBtn == 0) {          // button press (rising edge)
+    wantBeep = true;
     unsigned long now = millis();
     if (now - lastPress > 1200) pressCount = 0; // window expired -> restart
     pressCount++;
@@ -157,7 +163,7 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *incoming, int len) {
   }
   lastBtn = data.btn;
 
-  if (demoActive) return;         // demo owns the motors; ignore the stick
+  if (demoActive || audioBusy) return;   // demo/sound owns the motors
 
   int throttle = data.y - 2048;
   int steer    = data.x - 2048;
@@ -182,29 +188,42 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *incoming, int len) {
   }
 }
 
-// Play a little jingle *through the motor coils* (they hum at the PWM freq).
-// Front wheels fwd + back wheels rev => forces cancel, car buzzes in place.
-void startupTune() {
-  latch_state = 0;
-  latch_state |= (1 << M1_A);   // front-right forward
-  latch_state |= (1 << M2_A);   // front-left  forward
-  latch_state |= (1 << M3_B);   // back-left   reverse
-  latch_state |= (1 << M4_B);   // back-right  reverse
-  latch_tx();
+// ---- motor "speaker": play a note sequence through the coils ----
+// Front wheels fwd + back wheels rev so forces cancel; low duty => the coils
+// hum at the note frequency without the motors overcoming friction to spin.
+// (freq 0 = rest). Runs from loop(), never from the radio callback.
+const int TONE_DUTY = 45;
 
-  const int notes[] = {523, 659, 784, 1047};   // C5 E5 G5 C6 rising arpeggio
-  const int durs[]  = {160, 160, 160, 300};
-  const int pins[]  = {PWM_M1, PWM_M2, PWM_M3, PWM_M4};
-  const int toneDuty = 45;    // low: coil hums at the note freq but doesn't spin
-  for (int n = 0; n < 4; n++) {
-    for (int p : pins) { analogWriteFrequency(p, notes[n]); analogWrite(p, toneDuty); }
+void playMelody(const int *notes, const int *durs, int len) {
+  audioBusy = true;
+  latch_state = (1 << M1_A) | (1 << M2_A) | (1 << M3_B) | (1 << M4_B);
+  latch_tx();
+  const int pins[] = {PWM_M1, PWM_M2, PWM_M3, PWM_M4};
+  for (int n = 0; n < len; n++) {
+    for (int p : pins) {
+      if (notes[n] > 0) { analogWriteFrequency(p, notes[n]); analogWrite(p, TONE_DUTY); }
+      else analogWrite(p, 0);
+    }
     delay(durs[n]);
     for (int p : pins) analogWrite(p, 0);
-    delay(50);
+    delay(30);
   }
-  for (int p : pins) analogWriteFrequency(p, 1000);   // back to normal PWM freq
+  for (int p : pins) analogWriteFrequency(p, 1000);   // restore normal PWM freq
   stopAll();
+  audioBusy = false;
 }
+
+// Imperial March opening (octave-5 so the motors reproduce it audibly)
+const int MARCH_N[]   = {784, 784, 784, 622, 932, 784, 622, 932, 784};
+const int MARCH_D[]   = {350, 350, 350, 260,  90, 350, 260,  90, 650};
+const int CHIRP_N[]   = {1047, 1319};              // remote connected
+const int CHIRP_D[]   = {90, 130};
+const int BEEP_N[]    = {1047};                    // button press
+const int BEEP_D[]    = {60};
+const int FANFARE_N[] = {784, 1047, 1319, 1568};   // before the demo show
+const int FANFARE_D[] = {110, 110, 110, 300};
+
+void startupTune() { playMelody(MARCH_N, MARCH_D, 9); }
 
 void setup() {
   Serial.begin(115200);
@@ -221,7 +240,9 @@ void setup() {
 }
 
 void loop() {
-  if (demoRequested) { demoRequested = false; runDemo(); }
-  if (!demoActive && millis() - lastRecv > FAILSAFE_MS) stopAll();
+  if (demoRequested) { demoRequested = false; playMelody(FANFARE_N, FANFARE_D, 4); runDemo(); }
+  if (wantChirp) { wantChirp = false; playMelody(CHIRP_N, CHIRP_D, 2); }
+  if (wantBeep)  { wantBeep  = false; playMelody(BEEP_N,  BEEP_D,  1); }
+  if (!demoActive && !audioBusy && millis() - lastRecv > FAILSAFE_MS) { stopAll(); linked = false; }
   delay(10);
 }
