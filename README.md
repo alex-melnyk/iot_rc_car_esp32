@@ -42,6 +42,7 @@ Both boards are identical Nano ESP32s; the firmware assigns their roles.
 | `remote_espnow/` | Remote firmware — joystick → ESP-NOW broadcast |
 | `car_l293d/` | Car firmware — ESP-NOW → L293D shield, tank steering, demo |
 | `car_motortest/` | One-motor-at-a-time diagnostic (no radio) for bring-up |
+| `balance_mpu/` | **Experimental self-balancing mode** — MPU-6050 + PID (see below) |
 
 ---
 
@@ -52,6 +53,7 @@ Built with [`arduino-cli`](https://arduino.github.io/arduino-cli/).
 ```bash
 # core (once)
 arduino-cli core install esp32:esp32          # built with 3.3.10
+arduino-cli lib install "Adafruit MPU6050"    # only for balance_mpu
 
 # compile
 arduino-cli compile --fqbn esp32:esp32:nano_nora car_l293d
@@ -186,3 +188,39 @@ durations ms, `0` = rest.
   the M1–M4 numbering. See the corner map above.
 - **Bring-up tip.** `car_motortest/` drives one motor at a time (no radio) — the
   fastest way to verify each wheel's pin mapping and spin direction.
+
+---
+
+## Self-balancing mode (experimental — `balance_mpu/`)
+
+A proof-of-concept that stands the car **upright on its rear axle** (M3+M4) and
+balances like an inverted pendulum, using an added **MPU-6050 (GY-521)** IMU and
+a PID loop. **It works** — it holds the tilt angle to within ~±3° — but with
+caveats (see below). This is a separate firmware from the RC car.
+
+**Extra hardware:** MPU-6050 (GY-521) → `VCC→3V3, GND→GND, SCL→A5, SDA→A4`.
+Mount it rigidly, low and near the rear axle.
+
+**How it works:**
+- Reads accel+gyro via the **Adafruit MPU6050** library, fuses them with a
+  complementary filter into a tilt `angle`, and runs PID on `(angle - SETPOINT)`.
+- **Feedforward kick** (`MIN_DRIVE`) lifts every correction past the TT-motor
+  deadband, since small PID outputs otherwise can't move the motors.
+- **Auto-arm / recover:** starts idle; arms when stood within `ARM_WINDOW` of the
+  balance angle; disarms (motors off) past `FALL_LIMIT`; re-arms on stand-up —
+  no power cycle needed after a fall.
+
+**Bring-up:** flash with `#define CALIBRATE 1` (motors off), hold the car at its
+teetering point, read the angle → that's your `SETPOINT`. Set `CALIBRATE 0`, do
+the sign check at low `Kp` (flip `OUTPUT_SIGN` if wheels drive the wrong way),
+then raise `Kp`/`Kd`. Tuned values here: `SETPOINT 67.6`, `Kp 20`, `Kd 0.8`.
+
+**Known limits (honest):**
+- **Translational drift** — with no wheel encoders it holds *angle*, not
+  *position*, so it slowly rolls across the floor. Encoders (or a command-integral
+  damper) are the real fix.
+- **TT motors + L293D are marginal** for balancing (slow, backlash) — expect
+  wobble-catching, not rock-steady standing. A TB6612/DRV8833 driver + faster
+  motors would transform it.
+- Powered off USB, hard motor stalls (during a fall) can brown out the board —
+  power the logic from the battery+buck with a bulk cap for stability.
